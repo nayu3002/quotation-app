@@ -1,0 +1,24 @@
+[
+  {
+    "id": "19f8f056-47d1-49fa-9f24-402ccc6fafa4",
+    "name": "Length",
+    "type": "info",
+    "isMultiplier": false,
+    "defaultValue": "0",
+    "sortOrder": 0,
+    "organizationId": "cc8a983e-2837-49f1-84e7-483576ffab4c",
+    "createdAt": "2026-03-25T18:49:24.182Z",
+    "isActive": true
+  },
+  {
+    "id": "05f27f2c-7a97-4823-a52f-3014edb02429",
+    "name": "Length",
+    "type": "info",
+    "isMultiplier": false,
+    "defaultValue": "0",
+    "sortOrder": 0,
+    "organizationId": "cc8a983e-2837-49f1-84e7-483576ffab4c",
+    "createdAt": "2026-03-25T18:49:26.006Z",
+    "isActive": true
+  }
+]

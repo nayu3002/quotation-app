@@ -1,0 +1,241 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── TENANT ROOT ─────────────────────────────────────────────────────────────
+model Organization {
+  id         String   @id @default(uuid())
+  name       String
+  gstNumber  String?  @map("gst_number")
+  address    String?
+  logoUrl    String?  @map("logo_url")
+  phone      String?
+  email      String?
+  defaultTerms String? @map("default_terms")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  users             User[]
+  customers         Customer[]
+  productTypes      ProductType[]
+  productSizes      ProductSize[]
+  sizeCostTemplates SizeCostTemplate[]
+  customCostFields  CustomCostField[]
+  quotations        Quotation[]
+
+  @@map("organizations")
+}
+
+// ─── USER ─────────────────────────────────────────────────────────────────────
+model User {
+  id             String  @id @default(uuid()) // matches Supabase Auth uid
+  email          String
+  role           String  @default("owner") // owner | staff
+  organizationId String  @map("organization_id")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("users")
+}
+
+// ─── CUSTOMER ────────────────────────────────────────────────────────────────
+model Customer {
+  id             String  @id @default(uuid())
+  name           String
+  company        String?
+  gstin          String?
+  phone          String?
+  email          String?
+  address        String?
+  organizationId String  @map("organization_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  quotations   Quotation[]
+
+  @@map("customers")
+}
+
+// ─── PRODUCT TYPE ────────────────────────────────────────────────────────────
+model ProductType {
+  id             String  @id @default(uuid())
+  name           String  // shirt, pant, full shirt, skirt, etc.
+  description    String?
+  organizationId String  @map("organization_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productSizes      ProductSize[]
+  quotationLineItems QuotationLineItem[]
+  customCostFields  CustomCostField[]
+
+  @@map("product_types")
+}
+
+// ─── PRODUCT SIZE ────────────────────────────────────────────────────────────
+model ProductSize {
+  id            String @id @default(uuid())
+  productTypeId String @map("product_type_id")
+  sizeLabel     String @map("size_label") // e.g. 32x36, 38, S, M, L, XL
+  sortOrder     Int    @default(0) @map("sort_order")
+  organizationId String @map("organization_id")
+
+  productType       ProductType        @relation(fields: [productTypeId], references: [id], onDelete: Cascade)
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sizeCostTemplates SizeCostTemplate[]
+  quotationLineItems QuotationLineItem[]
+
+  @@unique([productTypeId, sizeLabel])
+  @@map("product_sizes")
+}
+
+// ─── SIZE COST TEMPLATE (Reference pricing per size) ─────────────────────────
+model SizeCostTemplate {
+  id               String  @id @default(uuid())
+  productSizeId    String  @map("product_size_id")
+  fabricAvg        Decimal @default(0) @map("fabric_avg")     // meters of fabric
+  fabricRate       Decimal @default(0) @map("fabric_rate")    // price per meter
+  stitchingCost    Decimal @default(0) @map("stitching_cost")
+  matchingCost     Decimal @default(0) @map("matching_cost")  // add-ons/matching
+  labelCost        Decimal @default(0) @map("label_cost")
+  extraCost        Decimal @default(0) @map("extra_cost")
+  profitMultiplier Decimal @default(1.2) @map("profit_multiplier")
+  roundOff         Boolean @default(true) @map("round_off")
+  organizationId   String  @map("organization_id")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  productSize   ProductSize                  @relation(fields: [productSizeId], references: [id], onDelete: Cascade)
+  organization  Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customValues  SizeCostTemplateCustomValue[]
+
+  @@unique([productSizeId, organizationId])
+  @@map("size_cost_templates")
+}
+
+// ─── CUSTOM COST FIELD (User-defined pricing variables) ───────────────────────
+// e.g. "Embroidery", "Packing", "Commission %", "Transport"
+model CustomCostField {
+  id             String  @id @default(uuid())
+  name           String  // display name
+  type           String  @default("numeric") // numeric | multiplier | info
+  isMultiplier   Boolean @default(false) @map("is_multiplier") // false=additive ₹ | true=% multiplier
+  defaultValue   Decimal @default(0) @map("default_value")
+  sortOrder      Int     @default(0) @map("sort_order")
+  organizationId String  @map("organization_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  isActive       Boolean  @default(true) @map("is_active")
+  productTypeId  String?  @map("product_type_id")
+
+  organization                   Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productType                    ProductType?                     @relation(fields: [productTypeId], references: [id], onDelete: Cascade)
+  sizeCostTemplateCustomValues   SizeCostTemplateCustomValue[]
+  quotationLineItemCustomValues  QuotationLineItemCustomValue[]
+
+  @@map("custom_cost_fields")
+}
+
+// Per-template value override for each custom cost field
+model SizeCostTemplateCustomValue {
+  id                 String  @id @default(uuid())
+  sizeCostTemplateId String  @map("size_cost_template_id")
+  customCostFieldId  String  @map("custom_cost_field_id")
+  value              Decimal @default(0)
+  textValue          String? @map("text_value")
+
+  sizeCostTemplate SizeCostTemplate @relation(fields: [sizeCostTemplateId], references: [id], onDelete: Cascade)
+  customCostField  CustomCostField  @relation(fields: [customCostFieldId], references: [id], onDelete: Cascade)
+
+  @@unique([sizeCostTemplateId, customCostFieldId])
+  @@map("size_cost_template_custom_values")
+}
+
+// ─── QUOTATION ───────────────────────────────────────────────────────────────
+model Quotation {
+  id             String   @id @default(uuid())
+  quotationNumber String? @map("quotation_number") // e.g. QT-2024-001
+  customerId     String   @map("customer_id")
+  notes          String?
+  terms          String?
+  subtotal       Decimal  @default(0)
+  gstPercentage  Decimal  @default(18) @map("gst_percentage")
+  gstAmount      Decimal  @default(0) @map("gst_amount")
+  total          Decimal  @default(0)
+  status         String   @default("draft") // draft | sent | accepted | rejected
+  organizationId String   @map("organization_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  customer      Customer           @relation(fields: [customerId], references: [id])
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lineItems     QuotationLineItem[]
+  pdfRecords    PdfRecord[]
+
+  @@map("quotations")
+}
+
+// ─── QUOTATION LINE ITEM (One row per size in quotation) ─────────────────────
+model QuotationLineItem {
+  id               String  @id @default(uuid())
+  quotationId      String  @map("quotation_id")
+  productTypeId    String  @map("product_type_id")
+  productSizeId    String  @map("product_size_id")
+  quantity         Int     @default(1)
+
+  // Stored cost breakdown (snapshot at time of quotation creation)
+  fabricAvg        Decimal @default(0) @map("fabric_avg")
+  fabricRate       Decimal @default(0) @map("fabric_rate")
+  fabricCost       Decimal @default(0) @map("fabric_cost")  // fabricAvg × fabricRate
+  stitchingCost    Decimal @default(0) @map("stitching_cost")
+  matchingCost     Decimal @default(0) @map("matching_cost")
+  labelCost        Decimal @default(0) @map("label_cost")
+  extraCost        Decimal @default(0) @map("extra_cost")
+  profitMultiplier Decimal @default(1.2) @map("profit_multiplier")
+  roundOff         Boolean @default(true) @map("round_off")
+
+  // Final calculated values
+  pricePerPiece    Decimal @default(0) @map("price_per_piece")
+  totalPrice       Decimal @default(0) @map("total_price")
+
+  quotation    Quotation   @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  productType  ProductType @relation(fields: [productTypeId], references: [id])
+  productSize  ProductSize @relation(fields: [productSizeId], references: [id])
+  customValues QuotationLineItemCustomValue[]
+
+  @@map("quotation_line_items")
+}
+
+// Per-line-item value for each custom cost field (editable per row)
+model QuotationLineItemCustomValue {
+  id                  String  @id @default(uuid())
+  quotationLineItemId String  @map("quotation_line_item_id")
+  customCostFieldId   String  @map("custom_cost_field_id")
+  value               Decimal @default(0)
+  textValue           String? @map("text_value")
+
+  quotationLineItem QuotationLineItem @relation(fields: [quotationLineItemId], references: [id], onDelete: Cascade)
+  customCostField   CustomCostField   @relation(fields: [customCostFieldId], references: [id], onDelete: Cascade)
+
+  @@unique([quotationLineItemId, customCostFieldId])
+  @@map("quotation_line_item_custom_values")
+}
+
+// ─── PDF RECORD ──────────────────────────────────────────────────────────────
+model PdfRecord {
+  id          String   @id @default(uuid())
+  quotationId String   @map("quotation_id")
+  fileUrl     String   @map("file_url")
+  fileName    String?  @map("file_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@map("pdf_records")
+}
